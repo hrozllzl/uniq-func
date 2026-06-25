@@ -7,16 +7,12 @@ const MENUS = [
     icon: Target,
     title: "점수 비교",
     desc: "기간별 회원 평균 점수와 상승률을 확인합니다",
-    color: "from-blue-500 to-blue-600",
-    bg: "hover:bg-blue-50",
   },
   {
     path: "/team",
     icon: Users,
     title: "팀 짜기",
     desc: "회원들의 점수를 기반으로 균형 잡힌 팀을 구성합니다",
-    color: "from-emerald-500 to-emerald-600",
-    bg: "hover:bg-emerald-50",
   },
 ];
 
@@ -24,12 +20,9 @@ export default function Home() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
-      <div className="w-full max-w-2xl">
-        <p className="text-center text-muted-foreground text-sm mb-10 tracking-wide uppercase font-medium">
-          메뉴를 선택하세요
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+    <div className="min-h-screen bg-[#f4f6fb] flex flex-col items-center pt-[18vh] px-6">
+      <div className="w-full max-w-xl">
+        <div className="grid grid-cols-2 gap-4">
           {MENUS.map((menu) => {
             const Icon = menu.icon;
             return (
@@ -37,16 +30,14 @@ export default function Home() {
                 key={menu.path}
                 data-testid={`menu-${menu.path.slice(1)}`}
                 onClick={() => setLocation(menu.path)}
-                className={`group rounded-2xl border border-card-border bg-card shadow-sm p-8 flex flex-col items-center gap-4 transition-all duration-200 ${menu.bg} hover:shadow-md hover:-translate-y-0.5 cursor-pointer`}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col items-center gap-3 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 cursor-pointer text-left"
               >
-                <div
-                  className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${menu.color} flex items-center justify-center shadow-md`}
-                >
-                  <Icon className="w-8 h-8 text-white" />
+                <div className="w-14 h-14 rounded-2xl bg-[#dce9fb] flex items-center justify-center">
+                  <Icon className="w-7 h-7 text-[#4a90d9]" strokeWidth={1.7} />
                 </div>
                 <div className="text-center">
-                  <h2 className="text-lg font-bold mb-1">{menu.title}</h2>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{menu.desc}</p>
+                  <p className="text-[15px] font-bold text-gray-800 mb-0.5">{menu.title}</p>
+                  <p className="text-xs text-gray-400 leading-relaxed">{menu.desc}</p>
                 </div>
               </button>
             );

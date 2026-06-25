@@ -22,6 +22,10 @@ function formatDate(d: string) {
   return d.replace(/-/g, ".");
 }
 
+function scoreColor(score: number) {
+  return score >= 200 ? "text-red-500 font-bold" : "";
+}
+
 export default function ScoreComparison() {
   const [, setLocation] = useLocation();
 
@@ -29,19 +33,34 @@ export default function ScoreComparison() {
   const [allRecords, setAllRecords] = useState<GameRecord[]>([]);
   const [gameDates, setGameDates] = useState<string[]>([]);
   const [loadingDates, setLoadingDates] = useState(true);
-  const [loadingRecords, setLoadingRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [pendingFrom, setPendingFrom] = useState<string>("");
-  const [pendingTo, setPendingTo] = useState<string>("");
-  const [appliedFrom, setAppliedFrom] = useState<string>("");
-  const [appliedTo, setAppliedTo] = useState<string>("");
-  const [filteredRecords, setFilteredRecords] = useState<GameRecord[]>([]);
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+
+  // Year selectors
+  const [fromYear, setFromYear] = useState<string>("");
+  const [toYear, setToYear] = useState<string>("");
 
   const [sortField, setSortField] = useState<SortField>("avgScore");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // Fetch members + all unique game dates on mount
+  // All unique years from game dates
+  const years = useMemo(
+    () => Array.from(new Set(gameDates.map((d) => d.slice(0, 4)))).sort(),
+    [gameDates]
+  );
+
+  // Dates filtered per year
+  const fromDatesInYear = useMemo(
+    () => gameDates.filter((d) => d.startsWith(fromYear)),
+    [gameDates, fromYear]
+  );
+  const toDatesInYear = useMemo(
+    () => gameDates.filter((d) => d.startsWith(toYear) && d >= fromDate),
+    [gameDates, toYear, fromDate]
+  );
+
   useEffect(() => {
     async function init() {
       setLoadingDates(true);
@@ -61,16 +80,17 @@ export default function ScoreComparison() {
         const dates = Array.from(
           new Set((recordsData || []).map((r) => r.date))
         ).sort();
-
         setGameDates(dates);
 
         if (dates.length >= 1) {
-          const from = dates[0];
-          const to = dates[dates.length - 1];
-          setPendingFrom(from);
-          setPendingTo(to);
-          setAppliedFrom(from);
-          setAppliedTo(to);
+          const firstDate = dates[0];
+          const lastDate = dates[dates.length - 1];
+          const firstYear = firstDate.slice(0, 4);
+          const lastYear = lastDate.slice(0, 4);
+          setFromYear(firstYear);
+          setToYear(lastYear);
+          setFromDate(firstDate);
+          setToDate(lastDate);
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "데이터 불러오기 실패");
@@ -81,37 +101,43 @@ export default function ScoreComparison() {
     init();
   }, []);
 
-  // Filter records whenever applied range changes
-  useEffect(() => {
-    if (!appliedFrom || !appliedTo) return;
-    setLoadingRecords(true);
-    const filtered = allRecords.filter(
-      (r) => r.date >= appliedFrom && r.date <= appliedTo
-    );
-    setFilteredRecords(filtered);
-    setLoadingRecords(false);
-  }, [appliedFrom, appliedTo, allRecords]);
-
-  function applyFilter() {
-    setAppliedFrom(pendingFrom);
-    setAppliedTo(pendingTo);
+  // When fromYear changes, reset fromDate to first date in that year
+  function handleFromYearChange(year: string) {
+    setFromYear(year);
+    const datesInYear = gameDates.filter((d) => d.startsWith(year));
+    if (datesInYear.length > 0) {
+      const newFrom = datesInYear[0];
+      setFromDate(newFrom);
+      // If toDate is before newFrom, adjust toDate
+      if (toDate < newFrom) {
+        setToDate(newFrom);
+        const newToYear = newFrom.slice(0, 4);
+        setToYear(newToYear);
+      }
+    }
   }
 
-  const isDirty = pendingFrom !== appliedFrom || pendingTo !== appliedTo;
+  // When toYear changes, reset toDate to last date in that year (>= fromDate)
+  function handleToYearChange(year: string) {
+    setToYear(year);
+    const datesInYear = gameDates.filter((d) => d.startsWith(year) && d >= fromDate);
+    if (datesInYear.length > 0) {
+      setToDate(datesInYear[datesInYear.length - 1]);
+    }
+  }
 
-  // Stats computation
+  // Filtered records — derived directly from fromDate/toDate (instant apply)
+  const filteredRecords = useMemo(() => {
+    if (!fromDate || !toDate) return [];
+    return allRecords.filter((r) => r.date >= fromDate && r.date <= toDate);
+  }, [allRecords, fromDate, toDate]);
+
   const stats = useMemo((): MemberStat[] => {
     const perMember = new Map<
       string,
-      {
-        totalAvg: number;
-        gameCount: number;
-        firstDate: string;
-        firstAvg: number;
-      }
+      { totalAvg: number; gameCount: number; firstDate: string; firstAvg: number }
     >();
 
-    // records are sorted ascending by date
     const sorted = [...filteredRecords].sort((a, b) => a.date.localeCompare(b.date));
 
     for (const record of sorted) {
@@ -126,7 +152,6 @@ export default function ScoreComparison() {
         existing.totalAvg += avg;
         existing.gameCount += 1;
       } else {
-        // First participation for this member in the range
         perMember.set(record.member_id, {
           totalAvg: avg,
           gameCount: 1,
@@ -142,13 +167,12 @@ export default function ScoreComparison() {
         const s = perMember.get(member.id)!;
         const avgScore = Math.round(s.totalAvg / s.gameCount);
         const firstScore = Math.round(s.firstAvg);
-        const improvement = avgScore - firstScore;
         return {
           member,
           avgScore,
           firstScore,
           firstDate: s.firstDate,
-          improvement,
+          improvement: avgScore - firstScore,
           gameCount: s.gameCount,
         };
       });
@@ -178,12 +202,7 @@ export default function ScoreComparison() {
       : <ChevronUp className="inline w-3 h-3 ml-0.5" />;
   }
 
-  const loading = loadingDates || loadingRecords;
-
-  // Dates valid for "to" selector: >= pendingFrom
-  const toDateOptions = gameDates.filter((d) => d >= pendingFrom);
-  // Dates valid for "from" selector: <= pendingTo
-  const fromDateOptions = gameDates.filter((d) => d <= pendingTo);
+  const selectCls = "border border-input rounded-md px-2 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer";
 
   return (
     <div className="min-h-screen bg-background">
@@ -210,69 +229,69 @@ export default function ScoreComparison() {
           <CardContent>
             {loadingDates ? (
               <div className="flex gap-3">
-                <Skeleton className="h-9 w-40 rounded-md" />
-                <Skeleton className="h-9 w-40 rounded-md" />
+                <Skeleton className="h-9 w-24 rounded-md" />
+                <Skeleton className="h-9 w-32 rounded-md" />
+                <Skeleton className="h-9 w-24 rounded-md" />
+                <Skeleton className="h-9 w-32 rounded-md" />
               </div>
             ) : gameDates.length === 0 ? (
               <p className="text-sm text-muted-foreground">게임 데이터가 없습니다</p>
             ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">
-                    시작 게임일
-                  </label>
-                  <select
-                    data-testid="select-from-date"
-                    value={pendingFrom}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setPendingFrom(val);
-                      if (val > pendingTo) setPendingTo(val);
-                    }}
-                    className="border border-input rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
-                  >
-                    {fromDateOptions.map((d) => (
-                      <option key={d} value={d}>{formatDate(d)}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <span className="text-muted-foreground">~</span>
-
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">
-                    종료 게임일
-                  </label>
-                  <select
-                    data-testid="select-to-date"
-                    value={pendingTo}
-                    onChange={(e) => setPendingTo(e.target.value)}
-                    className="border border-input rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
-                  >
-                    {toDateOptions.map((d) => (
-                      <option key={d} value={d}>{formatDate(d)}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <button
-                  data-testid="btn-apply-filter"
-                  onClick={applyFilter}
-                  className={`px-5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                    isDirty
-                      ? "bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
-                      : "bg-secondary text-secondary-foreground cursor-default"
-                  }`}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* From */}
+                <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">시작</label>
+                <select
+                  data-testid="select-from-year"
+                  value={fromYear}
+                  onChange={(e) => handleFromYearChange(e.target.value)}
+                  className={selectCls}
                 >
-                  확인
-                </button>
+                  {years.map((y) => (
+                    <option key={y} value={y}>{y}년</option>
+                  ))}
+                </select>
+                <select
+                  data-testid="select-from-date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFromDate(val);
+                    if (val > toDate) {
+                      setToDate(val);
+                      setToYear(val.slice(0, 4));
+                    }
+                  }}
+                  className={selectCls}
+                >
+                  {fromDatesInYear.map((d) => (
+                    <option key={d} value={d}>{formatDate(d)}</option>
+                  ))}
+                </select>
 
-                {isDirty && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1 w-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-                    변경된 기간을 적용하려면 확인 버튼을 누르세요
-                  </p>
-                )}
+                <span className="text-muted-foreground px-1">~</span>
+
+                {/* To */}
+                <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">종료</label>
+                <select
+                  data-testid="select-to-year"
+                  value={toYear}
+                  onChange={(e) => handleToYearChange(e.target.value)}
+                  className={selectCls}
+                >
+                  {years.filter((y) => y >= fromYear).map((y) => (
+                    <option key={y} value={y}>{y}년</option>
+                  ))}
+                </select>
+                <select
+                  data-testid="select-to-date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className={selectCls}
+                >
+                  {toDatesInYear.map((d) => (
+                    <option key={d} value={d}>{formatDate(d)}</option>
+                  ))}
+                </select>
               </div>
             )}
           </CardContent>
@@ -283,18 +302,18 @@ export default function ScoreComparison() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
               회원별 평균 점수
-              {!loading && (
+              {!loadingDates && (
                 <Badge variant="secondary" className="text-xs">{sortedStats.length}명</Badge>
               )}
-              {appliedFrom && appliedTo && (
+              {fromDate && toDate && (
                 <span className="ml-auto text-xs font-normal text-muted-foreground/70">
-                  {formatDate(appliedFrom)} ~ {formatDate(appliedTo)}
+                  {formatDate(fromDate)} ~ {formatDate(toDate)}
                 </span>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {loading ? (
+            {loadingDates ? (
               <div className="p-4 space-y-3">
                 {[0, 1, 2, 3, 4].map((i) => (
                   <div key={i} className="flex items-center gap-4">
@@ -325,7 +344,7 @@ export default function ScoreComparison() {
                       </th>
                       <th className="text-right px-4 py-3 font-medium text-muted-foreground">
                         기준 점수
-                        <span className="block text-xs font-normal opacity-60">첫 참여 게임 평균</span>
+                        <span className="block text-xs font-normal opacity-60">첫 참여 게임</span>
                       </th>
                       <th
                         className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none"
@@ -362,13 +381,17 @@ export default function ScoreComparison() {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="text-muted-foreground font-mono">{s.firstScore}</span>
+                            <span className={`font-medium ${scoreColor(s.firstScore)} ${!scoreColor(s.firstScore) ? "text-muted-foreground" : ""}`}>
+                              {s.firstScore}
+                            </span>
                             <span className="block text-xs text-muted-foreground/50 mt-0.5">
                               {formatDate(s.firstDate)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="text-base font-bold text-primary">{s.avgScore}</span>
+                            <span className={`text-base font-bold ${scoreColor(s.avgScore) || "text-primary"}`}>
+                              {s.avgScore}
+                            </span>
                             <span className="text-xs text-muted-foreground ml-0.5">점</span>
                           </td>
                           <td className="px-4 py-3 text-right">

@@ -45,6 +45,24 @@ function calcTeamTotal(team: Team) {
   return Math.round(team.members.reduce((s, m) => s + m.score, 0));
 }
 
+// Fisher-Yates shuffle
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Sort descending by score, shuffling within same-score ties for variety
+function sortWithJitter(members: MemberWithScore[]): MemberWithScore[] {
+  // Add tiny random jitter (<1 pt) so ties always resolve differently
+  const withJitter = members.map((m) => ({ m, key: m.score + Math.random() * 0.99 }));
+  withJitter.sort((a, b) => b.key - a.key);
+  return withJitter.map((x) => x.m);
+}
+
 // Snake-draft to equalize averages
 function buildTeamsAvg(members: MemberWithScore[], numTeams: number): Team[] {
   const teams: Team[] = Array.from({ length: numTeams }, (_, i) => ({
@@ -52,7 +70,7 @@ function buildTeamsAvg(members: MemberWithScore[], numTeams: number): Team[] {
     name: `팀 ${i + 1}`,
     members: [],
   }));
-  const sorted = [...members].sort((a, b) => b.score - a.score);
+  const sorted = sortWithJitter(members);
   sorted.forEach((m, idx) => {
     const round = Math.floor(idx / numTeams);
     const pos = idx % numTeams;
@@ -62,17 +80,20 @@ function buildTeamsAvg(members: MemberWithScore[], numTeams: number): Team[] {
   return teams;
 }
 
-// Greedy: always assign to team with lowest total
+// Greedy: always assign to team with lowest total (with randomized tie-breaking)
 function buildTeamsTotal(members: MemberWithScore[], numTeams: number): Team[] {
   const teams: Team[] = Array.from({ length: numTeams }, (_, i) => ({
     id: `team-${i + 1}`,
     name: `팀 ${i + 1}`,
     members: [],
   }));
-  const sorted = [...members].sort((a, b) => b.score - a.score);
+  const sorted = sortWithJitter(members);
   sorted.forEach((m) => {
-    const minTeam = teams.reduce((min, t) => calcTeamTotal(t) < calcTeamTotal(min) ? t : min, teams[0]);
-    minTeam.members.push(m);
+    // Among teams with the same minimum total, pick randomly
+    const minTotal = Math.min(...teams.map(calcTeamTotal));
+    const candidates = teams.filter((t) => calcTeamTotal(t) === minTotal);
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    target.members.push(m);
   });
   return teams;
 }
@@ -112,7 +133,9 @@ function SortableMemberCard({
         {mws.member.name[0]}
       </div>
       <span className="flex-1 font-medium">{mws.member.name}</span>
-      <span className="text-xs text-muted-foreground font-mono">{Math.round(mws.score)}점</span>
+      <span className={`text-xs font-mono font-medium ${Math.round(mws.score) >= 200 ? "text-red-500" : "text-muted-foreground"}`}>
+        {Math.round(mws.score)}점
+      </span>
     </div>
   );
 }
@@ -501,7 +524,7 @@ export default function TeamBuilder() {
                     data-testid="btn-build-teams"
                     onClick={buildTeams}
                     disabled={memberScores.length < numTeams}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-sky-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 shadow-sm hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Shuffle className="w-4 h-4" />
                     팀 짜기
