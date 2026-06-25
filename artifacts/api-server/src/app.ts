@@ -9,11 +9,4 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/api/index", (req, res) => {
-  res.json({
-    ok: true,
-    message: "api works",
-  });
-});
-
 export default app;
