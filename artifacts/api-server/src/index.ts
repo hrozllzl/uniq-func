@@ -1,25 +1,9 @@
-import app from "./app";
-import { logger } from "./lib/logger";
+import { Router } from "express";
 
-const rawPort = process.env["PORT"];
+const router = Router();
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
-
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
-
-  logger.info({ port }, "Server listening");
+router.get("/healthz", (req, res) => {
+  res.json({ status: "ok" });
 });
+
+export default router;
