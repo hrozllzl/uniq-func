@@ -1,17 +1,11 @@
-import { Router, type Request, type Response } from "express";
+import { Router } from "express";
 
 const router = Router();
 
-router.get("/index", (_req: Request, res: Response) => {
+router.get("*", (req, res) => {
   res.json({
-    ok: true,
-    message: "api works",
-  });
-});
-
-router.get("/healthz", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
+    receivedPath: req.path,
+    message: "router works",
   });
 });
 
