@@ -6,13 +6,13 @@ const MENUS = [
     path: "/score",
     icon: Target,
     title: "점수 비교",
-    desc: "기간별 회원 평균 점수와 상승률을 확인합니다",
+    desc: "기간별 회원 평균 비교",
   },
   {
     path: "/team",
     icon: Users,
     title: "팀 짜기",
-    desc: "회원들의 점수를 기반으로 균형 잡힌 팀을 구성합니다",
+    desc: "균형 잡힌 팀 구성",
   },
 ];
 
