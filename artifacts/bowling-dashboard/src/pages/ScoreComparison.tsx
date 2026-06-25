@@ -6,24 +6,39 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown } from "lucide-react";
 
-type SortField = "name" | "avgScore" | "improvement";
+type SortField = "name" | "baseAvg" | "cmpAvg" | "delta";
 type SortDir = "asc" | "desc";
 
 type MemberStat = {
   member: Member;
-  avgScore: number;
-  firstScore: number;
-  firstDate: string;
-  improvement: number;
-  gameCount: number;
+  baseAvg: number | null;
+  baseCount: number;
+  cmpAvg: number | null;
+  cmpCount: number;
+  delta: number | null;
 };
 
 function formatDate(d: string) {
   return d.replace(/-/g, ".");
 }
 
-function scoreColor(score: number) {
+function avgColor(score: number | null) {
+  if (score === null) return "";
   return score >= 200 ? "text-red-500 font-bold" : "";
+}
+
+function calcAvg(records: GameRecord[], memberId: string, from: string, to: string): { avg: number | null; count: number } {
+  const filtered = records.filter(
+    (r) => r.member_id === memberId && r.date >= from && r.date <= to
+  );
+  if (filtered.length === 0) return { avg: null, count: 0 };
+  let total = 0, count = 0;
+  for (const rec of filtered) {
+    const valid = (rec.scores || []).filter((s): s is number => s !== null && !isNaN(Number(s)));
+    total += valid.reduce((a, b) => a + b, 0);
+    count += valid.length;
+  }
+  return { avg: count ? Math.round(total / count) : null, count: filtered.length };
 }
 
 export default function ScoreComparison() {
@@ -32,38 +47,32 @@ export default function ScoreComparison() {
   const [members, setMembers] = useState<Member[]>([]);
   const [allRecords, setAllRecords] = useState<GameRecord[]>([]);
   const [gameDates, setGameDates] = useState<string[]>([]);
-  const [loadingDates, setLoadingDates] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [fromDate, setFromDate] = useState<string>("");
-  const [toDate, setToDate] = useState<string>("");
+  // Base period
+  const [baseFromYear, setBaseFromYear] = useState("");
+  const [baseFromDate, setBaseFromDate] = useState("");
+  const [baseToYear, setBaseToYear] = useState("");
+  const [baseToDate, setBaseToDate] = useState("");
 
-  // Year selectors
-  const [fromYear, setFromYear] = useState<string>("");
-  const [toYear, setToYear] = useState<string>("");
+  // Comparison period
+  const [cmpFromYear, setCmpFromYear] = useState("");
+  const [cmpFromDate, setCmpFromDate] = useState("");
+  const [cmpToYear, setCmpToYear] = useState("");
+  const [cmpToDate, setCmpToDate] = useState("");
 
-  const [sortField, setSortField] = useState<SortField>("improvement");
+  const [sortField, setSortField] = useState<SortField>("delta");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // All unique years from game dates
   const years = useMemo(
     () => Array.from(new Set(gameDates.map((d) => d.slice(0, 4)))).sort(),
     [gameDates]
   );
 
-  // Dates filtered per year
-  const fromDatesInYear = useMemo(
-    () => gameDates.filter((d) => d.startsWith(fromYear)),
-    [gameDates, fromYear]
-  );
-  const toDatesInYear = useMemo(
-    () => gameDates.filter((d) => d.startsWith(toYear) && d >= fromDate),
-    [gameDates, toYear, fromDate]
-  );
-
   useEffect(() => {
     async function init() {
-      setLoadingDates(true);
+      setLoading(true);
       setError(null);
       try {
         const [{ data: membersData, error: mErr }, { data: recordsData, error: rErr }] =
@@ -82,110 +91,93 @@ export default function ScoreComparison() {
         ).sort();
         setGameDates(dates);
 
-        if (dates.length >= 1) {
-          const firstDate = dates[0];
-          const lastDate = dates[dates.length - 1];
-          const firstYear = firstDate.slice(0, 4);
-          const lastYear = lastDate.slice(0, 4);
-          setFromYear(firstYear);
-          setToYear(lastYear);
-          setFromDate(firstDate);
-          setToDate(lastDate);
+        if (dates.length > 0) {
+          const mid = Math.max(1, Math.floor(dates.length / 2));
+          const baseFrom = dates[0];
+          const baseTo = dates[mid - 1];
+          const cmpFrom = dates[Math.min(mid, dates.length - 1)];
+          const cmpTo = dates[dates.length - 1];
+
+          setBaseFromDate(baseFrom);
+          setBaseFromYear(baseFrom.slice(0, 4));
+          setBaseToDate(baseTo);
+          setBaseToYear(baseTo.slice(0, 4));
+
+          setCmpFromDate(cmpFrom);
+          setCmpFromYear(cmpFrom.slice(0, 4));
+          setCmpToDate(cmpTo);
+          setCmpToYear(cmpTo.slice(0, 4));
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "데이터 불러오기 실패");
       } finally {
-        setLoadingDates(false);
+        setLoading(false);
       }
     }
     init();
   }, []);
 
-  // When fromYear changes, reset fromDate to first date in that year
-  function handleFromYearChange(year: string) {
-    setFromYear(year);
-    const datesInYear = gameDates.filter((d) => d.startsWith(year));
-    if (datesInYear.length > 0) {
-      const newFrom = datesInYear[0];
-      setFromDate(newFrom);
-      // If toDate is before newFrom, adjust toDate
-      if (toDate < newFrom) {
-        setToDate(newFrom);
-        const newToYear = newFrom.slice(0, 4);
-        setToYear(newToYear);
+  // Helper: dates in year filtered by a minimum date
+  function datesInYear(year: string, minDate = "") {
+    return gameDates.filter((d) => d.startsWith(year) && d >= minDate);
+  }
+
+  // Base period handlers
+  function handleBaseFromYearChange(y: string) {
+    setBaseFromYear(y);
+    const ds = gameDates.filter((d) => d.startsWith(y));
+    if (ds.length) {
+      const newFrom = ds[0];
+      setBaseFromDate(newFrom);
+      if (baseToDate < newFrom) {
+        setBaseToDate(newFrom);
+        setBaseToYear(newFrom.slice(0, 4));
       }
     }
   }
-
-  // When toYear changes, reset toDate to last date in that year (>= fromDate)
-  function handleToYearChange(year: string) {
-    setToYear(year);
-    const datesInYear = gameDates.filter((d) => d.startsWith(year) && d >= fromDate);
-    if (datesInYear.length > 0) {
-      setToDate(datesInYear[datesInYear.length - 1]);
-    }
+  function handleBaseToYearChange(y: string) {
+    setBaseToYear(y);
+    const ds = gameDates.filter((d) => d.startsWith(y) && d >= baseFromDate);
+    if (ds.length) setBaseToDate(ds[ds.length - 1]);
   }
 
-  // Filtered records — derived directly from fromDate/toDate (instant apply)
-  const filteredRecords = useMemo(() => {
-    if (!fromDate || !toDate) return [];
-    return allRecords.filter((r) => r.date >= fromDate && r.date <= toDate);
-  }, [allRecords, fromDate, toDate]);
+  // Comparison period handlers
+  function handleCmpFromYearChange(y: string) {
+    setCmpFromYear(y);
+    const ds = gameDates.filter((d) => d.startsWith(y));
+    if (ds.length) {
+      const newFrom = ds[0];
+      setCmpFromDate(newFrom);
+      if (cmpToDate < newFrom) {
+        setCmpToDate(newFrom);
+        setCmpToYear(newFrom.slice(0, 4));
+      }
+    }
+  }
+  function handleCmpToYearChange(y: string) {
+    setCmpToYear(y);
+    const ds = gameDates.filter((d) => d.startsWith(y) && d >= cmpFromDate);
+    if (ds.length) setCmpToDate(ds[ds.length - 1]);
+  }
 
   const stats = useMemo((): MemberStat[] => {
-    const perMember = new Map<
-      string,
-      { totalAvg: number; gameCount: number; firstDate: string; firstAvg: number }
-    >();
-
-    const sorted = [...filteredRecords].sort((a, b) => a.date.localeCompare(b.date));
-
-    for (const record of sorted) {
-      const validScores = (record.scores || []).filter(
-        (s): s is number => s !== null && s !== undefined && !isNaN(Number(s))
-      );
-      if (validScores.length === 0) continue;
-      const avg = validScores.reduce((a, b) => a + b, 0) / validScores.length;
-
-      const existing = perMember.get(record.member_id);
-      if (existing) {
-        existing.totalAvg += avg;
-        existing.gameCount += 1;
-      } else {
-        perMember.set(record.member_id, {
-          totalAvg: avg,
-          gameCount: 1,
-          firstDate: record.date,
-          firstAvg: avg,
-        });
-      }
-    }
-
-    return members
-      .filter((m) => perMember.has(m.id))
-      .map((member) => {
-        const s = perMember.get(member.id)!;
-        const avgScore = Math.round(s.totalAvg / s.gameCount);
-        const firstScore = Math.round(s.firstAvg);
-        return {
-          member,
-          avgScore,
-          firstScore,
-          firstDate: s.firstDate,
-          improvement: avgScore - firstScore,
-          gameCount: s.gameCount,
-        };
-      });
-  }, [members, filteredRecords]);
+    if (!baseFromDate || !baseToDate || !cmpFromDate || !cmpToDate) return [];
+    return members.map((member) => {
+      const { avg: baseAvg, count: baseCount } = calcAvg(allRecords, member.id, baseFromDate, baseToDate);
+      const { avg: cmpAvg, count: cmpCount } = calcAvg(allRecords, member.id, cmpFromDate, cmpToDate);
+      const delta = baseAvg !== null && cmpAvg !== null ? cmpAvg - baseAvg : null;
+      return { member, baseAvg, baseCount, cmpAvg, cmpCount, delta };
+    }).filter((s) => s.baseCount > 0 || s.cmpCount > 0);
+  }, [members, allRecords, baseFromDate, baseToDate, cmpFromDate, cmpToDate]);
 
   const sortedStats = useMemo(() => {
     return [...stats].sort((a, b) => {
-      let aVal: string | number = 0;
-      let bVal: string | number = 0;
-      if (sortField === "name") { aVal = a.member.name; bVal = b.member.name; }
-      else { aVal = a[sortField]; bVal = b[sortField]; }
-      if (typeof aVal === "string")
-        return sortDir === "asc" ? aVal.localeCompare(bVal as string) : (bVal as string).localeCompare(aVal);
+      if (sortField === "name") {
+        const cmp = a.member.name.localeCompare(b.member.name);
+        return sortDir === "asc" ? cmp : -cmp;
+      }
+      const aVal = a[sortField] ?? (sortDir === "asc" ? Infinity : -Infinity);
+      const bVal = b[sortField] ?? (sortDir === "asc" ? Infinity : -Infinity);
       return sortDir === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
   }, [stats, sortField, sortDir]);
@@ -196,13 +188,65 @@ export default function ScoreComparison() {
   }
 
   function SortIcon({ field }: { field: SortField }) {
-    if (sortField !== field) return <span className="opacity-25 ml-1 text-xs">↕</span>;
+    if (sortField !== field) return <span className="opacity-25 ml-0.5 text-xs">↕</span>;
     return sortDir === "desc"
       ? <ChevronDown className="inline w-3 h-3 ml-0.5" />
       : <ChevronUp className="inline w-3 h-3 ml-0.5" />;
   }
 
   const selectCls = "border border-input rounded-md px-2 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer";
+
+  function PeriodSelector({
+    label,
+    labelColor,
+    fromYear, fromDate, toYear, toDate,
+    onFromYearChange, onFromDateChange,
+    onToYearChange, onToDateChange,
+  }: {
+    label: string;
+    labelColor: string;
+    fromYear: string; fromDate: string; toYear: string; toDate: string;
+    onFromYearChange: (y: string) => void;
+    onFromDateChange: (d: string) => void;
+    onToYearChange: (y: string) => void;
+    onToDateChange: (d: string) => void;
+  }) {
+    const fromDates = datesInYear(fromYear);
+    const toDates = datesInYear(toYear, fromDate);
+    return (
+      <div className="flex flex-col gap-2">
+        <span className={`text-xs font-semibold ${labelColor}`}>{label}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">시작</span>
+          <select value={fromYear} onChange={(e) => onFromYearChange(e.target.value)} className={selectCls}>
+            {years.map((y) => <option key={y} value={y}>{y}년</option>)}
+          </select>
+          <select
+            value={fromDate}
+            onChange={(e) => {
+              const val = e.target.value;
+              onFromDateChange(val);
+              if (val > toDate) {
+                onToDateChange(val);
+                onToYearChange(val.slice(0, 4));
+              }
+            }}
+            className={selectCls}
+          >
+            {fromDates.map((d) => <option key={d} value={d}>{formatDate(d)}</option>)}
+          </select>
+          <span className="text-muted-foreground">~</span>
+          <span className="text-xs text-muted-foreground">종료</span>
+          <select value={toYear} onChange={(e) => onToYearChange(e.target.value)} className={selectCls}>
+            {years.filter((y) => y >= fromYear).map((y) => <option key={y} value={y}>{y}년</option>)}
+          </select>
+          <select value={toDate} onChange={(e) => onToDateChange(e.target.value)} className={selectCls}>
+            {toDates.map((d) => <option key={d} value={d}>{formatDate(d)}</option>)}
+          </select>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -219,79 +263,45 @@ export default function ScoreComparison() {
           <h1 className="text-lg font-bold">점수 비교</h1>
         </div>
 
-        {/* Game Date Filter */}
+        {/* Period selectors */}
         <Card className="border-card-border shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground">
-              게임 일자 선택
-            </CardTitle>
+            <CardTitle className="text-sm font-semibold text-muted-foreground">기간 설정</CardTitle>
           </CardHeader>
           <CardContent>
-            {loadingDates ? (
-              <div className="flex gap-3">
-                <Skeleton className="h-9 w-24 rounded-md" />
-                <Skeleton className="h-9 w-32 rounded-md" />
-                <Skeleton className="h-9 w-24 rounded-md" />
-                <Skeleton className="h-9 w-32 rounded-md" />
+            {loading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-9 w-full rounded-md" />
+                <Skeleton className="h-9 w-full rounded-md" />
               </div>
             ) : gameDates.length === 0 ? (
               <p className="text-sm text-muted-foreground">게임 데이터가 없습니다</p>
             ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                {/* From */}
-                <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">시작</label>
-                <select
-                  data-testid="select-from-year"
-                  value={fromYear}
-                  onChange={(e) => handleFromYearChange(e.target.value)}
-                  className={selectCls}
-                >
-                  {years.map((y) => (
-                    <option key={y} value={y}>{y}년</option>
-                  ))}
-                </select>
-                <select
-                  data-testid="select-from-date"
-                  value={fromDate}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setFromDate(val);
-                    if (val > toDate) {
-                      setToDate(val);
-                      setToYear(val.slice(0, 4));
-                    }
-                  }}
-                  className={selectCls}
-                >
-                  {fromDatesInYear.map((d) => (
-                    <option key={d} value={d}>{formatDate(d)}</option>
-                  ))}
-                </select>
-
-                <span className="text-muted-foreground px-1">~</span>
-
-                {/* To */}
-                <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">종료</label>
-                <select
-                  data-testid="select-to-year"
-                  value={toYear}
-                  onChange={(e) => handleToYearChange(e.target.value)}
-                  className={selectCls}
-                >
-                  {years.filter((y) => y >= fromYear).map((y) => (
-                    <option key={y} value={y}>{y}년</option>
-                  ))}
-                </select>
-                <select
-                  data-testid="select-to-date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className={selectCls}
-                >
-                  {toDatesInYear.map((d) => (
-                    <option key={d} value={d}>{formatDate(d)}</option>
-                  ))}
-                </select>
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
+                  <PeriodSelector
+                    label="기준 기간"
+                    labelColor="text-blue-600"
+                    fromYear={baseFromYear} fromDate={baseFromDate}
+                    toYear={baseToYear} toDate={baseToDate}
+                    onFromYearChange={handleBaseFromYearChange}
+                    onFromDateChange={setBaseFromDate}
+                    onToYearChange={handleBaseToYearChange}
+                    onToDateChange={setBaseToDate}
+                  />
+                </div>
+                <div className="p-3 rounded-xl bg-violet-50 border border-violet-100">
+                  <PeriodSelector
+                    label="비교 기간"
+                    labelColor="text-violet-600"
+                    fromYear={cmpFromYear} fromDate={cmpFromDate}
+                    toYear={cmpToYear} toDate={cmpToDate}
+                    onFromYearChange={handleCmpFromYearChange}
+                    onFromDateChange={setCmpFromDate}
+                    onToYearChange={handleCmpToYearChange}
+                    onToDateChange={setCmpToDate}
+                  />
+                </div>
               </div>
             )}
           </CardContent>
@@ -301,19 +311,21 @@ export default function ScoreComparison() {
         <Card className="border-card-border shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-              회원별 평균 점수
-              {!loadingDates && (
+              회원별 점수 비교
+              {!loading && (
                 <Badge variant="secondary" className="text-xs">{sortedStats.length}명</Badge>
               )}
-              {fromDate && toDate && (
-                <span className="ml-auto text-[13px] font-medium text-primary">
-                  {formatDate(fromDate)} ~ {formatDate(toDate)}
+              {baseFromDate && baseToDate && cmpFromDate && cmpToDate && (
+                <span className="ml-auto flex items-center gap-2 text-[13px] font-medium">
+                  <span className="text-blue-500">{formatDate(baseFromDate)} ~ {formatDate(baseToDate)}</span>
+                  <span className="text-muted-foreground/40">vs</span>
+                  <span className="text-violet-500">{formatDate(cmpFromDate)} ~ {formatDate(cmpToDate)}</span>
                 </span>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {loadingDates ? (
+            {loading ? (
               <div className="p-4 space-y-3">
                 {[0, 1, 2, 3, 4].map((i) => (
                   <div key={i} className="flex items-center gap-4">
@@ -342,29 +354,30 @@ export default function ScoreComparison() {
                       >
                         회원명 <SortIcon field="name" />
                       </th>
-                      <th className="text-right px-4 py-3 font-medium text-muted-foreground">
-                        기준 점수
-                        <span className="block text-xs font-normal opacity-60">첫 참여 게임</span>
+                      <th
+                        className="text-right px-4 py-3 font-medium text-blue-500 cursor-pointer hover:text-blue-600 select-none"
+                        onClick={() => handleSort("baseAvg")}
+                      >
+                        기준 평균 <SortIcon field="baseAvg" />
+                      </th>
+                      <th
+                        className="text-right px-4 py-3 font-medium text-violet-500 cursor-pointer hover:text-violet-600 select-none"
+                        onClick={() => handleSort("cmpAvg")}
+                      >
+                        비교 평균 <SortIcon field="cmpAvg" />
                       </th>
                       <th
                         className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none"
-                        onClick={() => handleSort("avgScore")}
+                        onClick={() => handleSort("delta")}
                       >
-                        평균 점수 <SortIcon field="avgScore" />
+                        변화 <SortIcon field="delta" />
                       </th>
-                      <th
-                        className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none"
-                        onClick={() => handleSort("improvement")}
-                      >
-                        상승폭 <SortIcon field="improvement" />
-                      </th>
-                      <th className="text-right px-4 py-3 font-medium text-muted-foreground">게임 수</th>
                     </tr>
                   </thead>
                   <tbody>
                     {sortedStats.map((s, idx) => {
-                      const isUp = s.improvement > 0;
-                      const isDown = s.improvement < 0;
+                      const isUp = s.delta !== null && s.delta > 0;
+                      const isDown = s.delta !== null && s.delta < 0;
                       return (
                         <tr
                           key={s.member.id}
@@ -381,41 +394,48 @@ export default function ScoreComparison() {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className={`font-medium ${scoreColor(s.firstScore)} ${!scoreColor(s.firstScore) ? "text-muted-foreground" : ""}`}>
-                              {s.firstScore}
-                            </span>
-                            <span className="block text-xs text-muted-foreground/50 mt-0.5">
-                              {formatDate(s.firstDate)}
-                            </span>
+                            {s.baseAvg !== null ? (
+                              <div>
+                                <span className={`font-semibold ${avgColor(s.baseAvg) || "text-blue-500"}`}>
+                                  {s.baseAvg}
+                                </span>
+                                <span className="text-xs text-muted-foreground ml-0.5">점</span>
+                                <div className="text-xs text-muted-foreground/50">{s.baseCount}게임</div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground/40 text-xs">-</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className={`text-base font-bold ${scoreColor(s.avgScore) || "text-primary"}`}>
-                              {s.avgScore}
-                            </span>
-                            <span className="text-xs text-muted-foreground ml-0.5">점</span>
+                            {s.cmpAvg !== null ? (
+                              <div>
+                                <span className={`font-semibold ${avgColor(s.cmpAvg) || "text-violet-500"}`}>
+                                  {s.cmpAvg}
+                                </span>
+                                <span className="text-xs text-muted-foreground ml-0.5">점</span>
+                                <div className="text-xs text-muted-foreground/50">{s.cmpCount}게임</div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground/40 text-xs">-</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span
-                              className={`inline-flex items-center gap-0.5 text-sm font-semibold px-2 py-0.5 rounded-md ${
-                                isUp
-                                  ? "bg-green-100 text-green-700"
-                                  : isDown
-                                  ? "bg-rose-100 text-rose-600"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {isUp ? (
-                                <TrendingUp className="w-3.5 h-3.5" />
-                              ) : isDown ? (
-                                <TrendingDown className="w-3.5 h-3.5" />
-                              ) : (
-                                <Minus className="w-3.5 h-3.5" />
-                              )}
-                              {isUp ? "+" : ""}{s.improvement}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right text-muted-foreground text-xs">
-                            {s.gameCount}게임
+                            {s.delta !== null ? (
+                              <span
+                                className={`inline-flex items-center gap-0.5 text-sm font-semibold px-2 py-0.5 rounded-md ${
+                                  isUp
+                                    ? "bg-green-100 text-green-700"
+                                    : isDown
+                                    ? "bg-rose-100 text-rose-600"
+                                    : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : isDown ? <TrendingDown className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
+                                {isUp ? "+" : ""}{s.delta}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/40 text-xs">-</span>
+                            )}
                           </td>
                         </tr>
                       );
