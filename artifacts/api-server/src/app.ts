@@ -2,7 +2,7 @@ import express from "express";
 
 const app = express();
 
-app.get("/", (req, res) => {
+app.get("/api/index", (req, res) => {
   res.json({
     ok: true,
     message: "express works",
