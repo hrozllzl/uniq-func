@@ -2,8 +2,11 @@ import { Router } from "express";
 
 const router = Router();
 
-router.get("/healthz", (req, res) => {
-  res.json({ status: "ok" });
+router.get("/index", (req, res) => {
+  res.json({
+    ok: true,
+    message: "api works",
+  });
 });
 
 export default router;

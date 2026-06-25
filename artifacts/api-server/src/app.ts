@@ -1,12 +1,10 @@
 import express from "express";
+import routes from "./routes/index.js";
 
 const app = express();
 
-app.get("/api/index", (req, res) => {
-  res.json({
-    ok: true,
-    message: "express works",
-  });
-});
+app.use(express.json());
+
+app.use("/api", routes);
 
 export default app;
