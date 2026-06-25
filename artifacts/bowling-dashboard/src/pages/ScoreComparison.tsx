@@ -42,7 +42,7 @@ export default function ScoreComparison() {
   const [fromYear, setFromYear] = useState<string>("");
   const [toYear, setToYear] = useState<string>("");
 
-  const [sortField, setSortField] = useState<SortField>("avgScore");
+  const [sortField, setSortField] = useState<SortField>("improvement");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   // All unique years from game dates
@@ -306,7 +306,7 @@ export default function ScoreComparison() {
                 <Badge variant="secondary" className="text-xs">{sortedStats.length}명</Badge>
               )}
               {fromDate && toDate && (
-                <span className="ml-auto text-xs font-normal text-muted-foreground/70">
+                <span className="ml-auto text-[13px] font-medium text-primary">
                   {formatDate(fromDate)} ~ {formatDate(toDate)}
                 </span>
               )}
