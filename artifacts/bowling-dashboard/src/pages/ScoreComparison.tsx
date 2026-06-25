@@ -22,6 +22,10 @@ function formatDate(d: string) {
   return d.replace(/-/g, ".");
 }
 
+function formatDateShort(d: string) {
+  return d.slice(5).replace("-", ".");
+}
+
 function avgColor(score: number | null) {
   if (score === null) return "";
   return score >= 200 ? "text-red-500 font-bold" : "";
@@ -233,7 +237,7 @@ export default function ScoreComparison() {
             }}
             className={selectCls}
           >
-            {fromDates.map((d) => <option key={d} value={d}>{formatDate(d)}</option>)}
+            {fromDates.map((d) => <option key={d} value={d}>{formatDateShort(d)}</option>)}
           </select>
           <span className="text-muted-foreground">~</span>
           <span className="text-xs text-muted-foreground">종료</span>
@@ -241,7 +245,7 @@ export default function ScoreComparison() {
             {years.filter((y) => y >= fromYear).map((y) => <option key={y} value={y}>{y}년</option>)}
           </select>
           <select value={toDate} onChange={(e) => onToDateChange(e.target.value)} className={selectCls}>
-            {toDates.map((d) => <option key={d} value={d}>{formatDate(d)}</option>)}
+            {toDates.map((d) => <option key={d} value={d}>{formatDateShort(d)}</option>)}
           </select>
         </div>
       </div>
