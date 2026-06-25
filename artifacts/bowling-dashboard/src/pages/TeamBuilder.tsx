@@ -55,23 +55,27 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// Sort descending by score, shuffling within same-score ties for variety
-function sortWithJitter(members: MemberWithScore[]): MemberWithScore[] {
-  // Add tiny random jitter (<1 pt) so ties always resolve differently
-  const withJitter = members.map((m) => ({ m, key: m.score + Math.random() * 0.99 }));
-  withJitter.sort((a, b) => b.key - a.key);
-  return withJitter.map((x) => x.m);
+// Sort descending by score; within each tier of numTeams players, shuffle randomly.
+// This ensures every press produces a different valid result even when all scores are unique.
+function sortByTier(members: MemberWithScore[], numTeams: number): MemberWithScore[] {
+  const sorted = [...members].sort((a, b) => b.score - a.score);
+  const result: MemberWithScore[] = [];
+  for (let i = 0; i < sorted.length; i += numTeams) {
+    const tier = sorted.slice(i, i + numTeams);
+    result.push(...shuffle(tier));
+  }
+  return result;
 }
 
-// Snake-draft to equalize averages
+// Snake-draft to equalize averages (with per-tier randomization for variety)
 function buildTeamsAvg(members: MemberWithScore[], numTeams: number): Team[] {
   const teams: Team[] = Array.from({ length: numTeams }, (_, i) => ({
     id: `team-${i + 1}`,
     name: `팀 ${i + 1}`,
     members: [],
   }));
-  const sorted = sortWithJitter(members);
-  sorted.forEach((m, idx) => {
+  const tiered = sortByTier(members, numTeams);
+  tiered.forEach((m, idx) => {
     const round = Math.floor(idx / numTeams);
     const pos = idx % numTeams;
     const teamIdx = round % 2 === 0 ? pos : numTeams - 1 - pos;
@@ -80,16 +84,15 @@ function buildTeamsAvg(members: MemberWithScore[], numTeams: number): Team[] {
   return teams;
 }
 
-// Greedy: always assign to team with lowest total (with randomized tie-breaking)
+// Greedy: assign to team with lowest total; randomize among equal-total teams
 function buildTeamsTotal(members: MemberWithScore[], numTeams: number): Team[] {
   const teams: Team[] = Array.from({ length: numTeams }, (_, i) => ({
     id: `team-${i + 1}`,
     name: `팀 ${i + 1}`,
     members: [],
   }));
-  const sorted = sortWithJitter(members);
-  sorted.forEach((m) => {
-    // Among teams with the same minimum total, pick randomly
+  const tiered = sortByTier(members, numTeams);
+  tiered.forEach((m) => {
     const minTotal = Math.min(...teams.map(calcTeamTotal));
     const candidates = teams.filter((t) => calcTeamTotal(t) === minTotal);
     const target = candidates[Math.floor(Math.random() * candidates.length)];
@@ -133,7 +136,7 @@ function SortableMemberCard({
         {mws.member.name[0]}
       </div>
       <span className="flex-1 font-medium">{mws.member.name}</span>
-      <span className={`text-xs font-mono font-medium ${Math.round(mws.score) >= 200 ? "text-red-500" : "text-muted-foreground"}`}>
+      <span className={`font-medium ${Math.round(mws.score) >= 200 ? "text-red-500" : "text-muted-foreground"}`}>
         {Math.round(mws.score)}점
       </span>
     </div>
@@ -195,6 +198,7 @@ export default function TeamBuilder() {
   const [scoring, setScoring] = useState<ScoringMethod>("average");
   const [balancing, setBalancing] = useState<BalancingMethod>("avg");
   const [teams, setTeams] = useState<Team[]>([]);
+  const [buildCount, setBuildCount] = useState(0);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [hasBuilt, setHasBuilt] = useState(false);
@@ -262,6 +266,7 @@ export default function TeamBuilder() {
       ? buildTeamsAvg(memberScores, n)
       : buildTeamsTotal(memberScores, n);
     setTeams(built);
+    setBuildCount((c) => c + 1);
     setHasBuilt(true);
   }
 
@@ -545,6 +550,7 @@ export default function TeamBuilder() {
                 </div>
               ) : (
                 <DndContext
+                  key={buildCount}
                   sensors={sensors}
                   onDragStart={handleDragStart}
                   onDragOver={handleDragOver}
