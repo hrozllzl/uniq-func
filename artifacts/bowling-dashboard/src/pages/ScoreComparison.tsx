@@ -4,27 +4,7 @@ import { supabase, type Member, type GameRecord } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown } from "lucide-react";
-
-const QUICK_RANGES = [
-  { label: "최근 1개월", days: 30 },
-  { label: "최근 3개월", days: 90 },
-  { label: "최근 6개월", days: 180 },
-  { label: "올해", isYear: true },
-  { label: "전체", days: -1 },
-];
-
-function getDateRange(days: number, isYear?: boolean): { from: string; to: string } {
-  const today = new Date();
-  const to = today.toISOString().split("T")[0];
-  if (days === -1) return { from: "2000-01-01", to };
-  if (isYear) {
-    return { from: `${today.getFullYear()}-01-01`, to };
-  }
-  const from = new Date(today);
-  from.setDate(from.getDate() - days);
-  return { from: from.toISOString().split("T")[0], to };
-}
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown } from "lucide-react";
 
 type SortField = "name" | "avgScore" | "improvement";
 type SortDir = "asc" | "desc";
@@ -33,106 +13,125 @@ type MemberStat = {
   member: Member;
   avgScore: number;
   firstScore: number;
+  firstDate: string;
   improvement: number;
   gameCount: number;
 };
 
+function formatDate(d: string) {
+  return d.replace(/-/g, ".");
+}
+
 export default function ScoreComparison() {
   const [, setLocation] = useLocation();
 
-  const today = new Date().toISOString().split("T")[0];
-  const threeMonthsAgo = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 90);
-    return d.toISOString().split("T")[0];
-  })();
-
-  const [pendingFrom, setPendingFrom] = useState(threeMonthsAgo);
-  const [pendingTo, setPendingTo] = useState(today);
-  const [appliedFrom, setAppliedFrom] = useState(threeMonthsAgo);
-  const [appliedTo, setAppliedTo] = useState(today);
-  const [activeRange, setActiveRange] = useState(1);
-  const [pendingRange, setPendingRange] = useState(1);
-
   const [members, setMembers] = useState<Member[]>([]);
-  const [records, setRecords] = useState<GameRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [allRecords, setAllRecords] = useState<GameRecord[]>([]);
+  const [gameDates, setGameDates] = useState<string[]>([]);
+  const [loadingDates, setLoadingDates] = useState(true);
+  const [loadingRecords, setLoadingRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [pendingFrom, setPendingFrom] = useState<string>("");
+  const [pendingTo, setPendingTo] = useState<string>("");
+  const [appliedFrom, setAppliedFrom] = useState<string>("");
+  const [appliedTo, setAppliedTo] = useState<string>("");
+  const [filteredRecords, setFilteredRecords] = useState<GameRecord[]>([]);
 
   const [sortField, setSortField] = useState<SortField>("avgScore");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  // Fetch members + all unique game dates on mount
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
+    async function init() {
+      setLoadingDates(true);
       setError(null);
       try {
         const [{ data: membersData, error: mErr }, { data: recordsData, error: rErr }] =
           await Promise.all([
             supabase.from("members").select("*").eq("is_deleted", false).order("name"),
-            supabase
-              .from("game_records")
-              .select("*")
-              .gte("date", appliedFrom)
-              .lte("date", appliedTo)
-              .order("date", { ascending: true }),
+            supabase.from("game_records").select("*").order("date", { ascending: true }),
           ]);
         if (mErr) throw mErr;
         if (rErr) throw rErr;
+
         setMembers(membersData || []);
-        setRecords(recordsData || []);
+        setAllRecords(recordsData || []);
+
+        const dates = Array.from(
+          new Set((recordsData || []).map((r) => r.date))
+        ).sort();
+
+        setGameDates(dates);
+
+        if (dates.length >= 1) {
+          const from = dates[0];
+          const to = dates[dates.length - 1];
+          setPendingFrom(from);
+          setPendingTo(to);
+          setAppliedFrom(from);
+          setAppliedTo(to);
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "데이터 불러오기 실패");
       } finally {
-        setLoading(false);
+        setLoadingDates(false);
       }
     }
-    fetchData();
-  }, [appliedFrom, appliedTo]);
+    init();
+  }, []);
+
+  // Filter records whenever applied range changes
+  useEffect(() => {
+    if (!appliedFrom || !appliedTo) return;
+    setLoadingRecords(true);
+    const filtered = allRecords.filter(
+      (r) => r.date >= appliedFrom && r.date <= appliedTo
+    );
+    setFilteredRecords(filtered);
+    setLoadingRecords(false);
+  }, [appliedFrom, appliedTo, allRecords]);
 
   function applyFilter() {
     setAppliedFrom(pendingFrom);
     setAppliedTo(pendingTo);
-    setActiveRange(pendingRange);
   }
 
-  function handleQuickRange(idx: number, range: (typeof QUICK_RANGES)[0]) {
-    setPendingRange(idx);
-    const { from, to } = getDateRange((range as { days?: number }).days ?? 0, range.isYear);
-    setPendingFrom(from);
-    setPendingTo(to);
-  }
+  const isDirty = pendingFrom !== appliedFrom || pendingTo !== appliedTo;
 
+  // Stats computation
   const stats = useMemo((): MemberStat[] => {
-    const memberMap = new Map<string, Member>(members.map((m) => [m.id, m]));
-
     const perMember = new Map<
       string,
-      { total: number; count: number; firstAvg: number | null; firstDate: string | null; games: number }
+      {
+        totalAvg: number;
+        gameCount: number;
+        firstDate: string;
+        firstAvg: number;
+      }
     >();
 
-    for (const record of records) {
+    // records are sorted ascending by date
+    const sorted = [...filteredRecords].sort((a, b) => a.date.localeCompare(b.date));
+
+    for (const record of sorted) {
       const validScores = (record.scores || []).filter(
         (s): s is number => s !== null && s !== undefined && !isNaN(Number(s))
       );
       if (validScores.length === 0) continue;
       const avg = validScores.reduce((a, b) => a + b, 0) / validScores.length;
+
       const existing = perMember.get(record.member_id);
       if (existing) {
-        existing.total += avg;
-        existing.count += 1;
-        existing.games += 1;
-        if (existing.firstDate === null || record.date < existing.firstDate) {
-          existing.firstDate = record.date;
-          existing.firstAvg = avg;
-        }
+        existing.totalAvg += avg;
+        existing.gameCount += 1;
       } else {
+        // First participation for this member in the range
         perMember.set(record.member_id, {
-          total: avg,
-          count: 1,
-          firstAvg: avg,
+          totalAvg: avg,
+          gameCount: 1,
           firstDate: record.date,
-          games: 1,
+          firstAvg: avg,
         });
       }
     }
@@ -141,12 +140,19 @@ export default function ScoreComparison() {
       .filter((m) => perMember.has(m.id))
       .map((member) => {
         const s = perMember.get(member.id)!;
-        const avgScore = Math.round(s.total / s.count);
-        const firstScore = Math.round(s.firstAvg ?? avgScore);
+        const avgScore = Math.round(s.totalAvg / s.gameCount);
+        const firstScore = Math.round(s.firstAvg);
         const improvement = avgScore - firstScore;
-        return { member, avgScore, firstScore, improvement, gameCount: s.games };
+        return {
+          member,
+          avgScore,
+          firstScore,
+          firstDate: s.firstDate,
+          improvement,
+          gameCount: s.gameCount,
+        };
       });
-  }, [members, records]);
+  }, [members, filteredRecords]);
 
   const sortedStats = useMemo(() => {
     return [...stats].sort((a, b) => {
@@ -154,116 +160,125 @@ export default function ScoreComparison() {
       let bVal: string | number = 0;
       if (sortField === "name") { aVal = a.member.name; bVal = b.member.name; }
       else { aVal = a[sortField]; bVal = b[sortField]; }
-      if (typeof aVal === "string") return sortDir === "asc" ? aVal.localeCompare(bVal as string) : (bVal as string).localeCompare(aVal);
+      if (typeof aVal === "string")
+        return sortDir === "asc" ? aVal.localeCompare(bVal as string) : (bVal as string).localeCompare(aVal);
       return sortDir === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
   }, [stats, sortField, sortDir]);
 
   function handleSort(field: SortField) {
-    if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc");
+    if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("desc"); }
   }
 
   function SortIcon({ field }: { field: SortField }) {
     if (sortField !== field) return <span className="opacity-25 ml-1 text-xs">↕</span>;
-    return sortDir === "desc" ? <ChevronDown className="inline w-3 h-3 ml-0.5" /> : <ChevronUp className="inline w-3 h-3 ml-0.5" />;
+    return sortDir === "desc"
+      ? <ChevronDown className="inline w-3 h-3 ml-0.5" />
+      : <ChevronUp className="inline w-3 h-3 ml-0.5" />;
   }
 
-  const isDirty = pendingFrom !== appliedFrom || pendingTo !== appliedTo;
+  const loading = loadingDates || loadingRecords;
+
+  // Dates valid for "to" selector: >= pendingFrom
+  const toDateOptions = gameDates.filter((d) => d >= pendingFrom);
+  // Dates valid for "from" selector: <= pendingTo
+  const fromDateOptions = gameDates.filter((d) => d <= pendingTo);
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-sidebar text-sidebar-foreground shadow-lg">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* Top nav */}
+        <div className="flex items-center gap-3">
           <button
             data-testid="btn-back"
             onClick={() => setLocation("/")}
-            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-lg bg-secondary hover:bg-muted flex items-center justify-center transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">점수 비교</h1>
-            <p className="text-xs text-sidebar-foreground/60">회원별 기간 평균 & 상승률</p>
-          </div>
+          <h1 className="text-lg font-bold">점수 비교</h1>
         </div>
-      </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-        {/* Date Filter */}
+        {/* Game Date Filter */}
         <Card className="border-card-border shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-              <Calendar className="w-4 h-4" />
-              기간 필터
+            <CardTitle className="text-sm font-semibold text-muted-foreground">
+              게임 일자 선택
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {QUICK_RANGES.map((range, idx) => (
+          <CardContent>
+            {loadingDates ? (
+              <div className="flex gap-3">
+                <Skeleton className="h-9 w-40 rounded-md" />
+                <Skeleton className="h-9 w-40 rounded-md" />
+              </div>
+            ) : gameDates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">게임 데이터가 없습니다</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">
+                    시작 게임일
+                  </label>
+                  <select
+                    data-testid="select-from-date"
+                    value={pendingFrom}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPendingFrom(val);
+                      if (val > pendingTo) setPendingTo(val);
+                    }}
+                    className="border border-input rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+                  >
+                    {fromDateOptions.map((d) => (
+                      <option key={d} value={d}>{formatDate(d)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <span className="text-muted-foreground">~</span>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">
+                    종료 게임일
+                  </label>
+                  <select
+                    data-testid="select-to-date"
+                    value={pendingTo}
+                    onChange={(e) => setPendingTo(e.target.value)}
+                    className="border border-input rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+                  >
+                    {toDateOptions.map((d) => (
+                      <option key={d} value={d}>{formatDate(d)}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <button
-                  key={range.label}
-                  data-testid={`quick-range-${idx}`}
-                  onClick={() => handleQuickRange(idx, range)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    pendingRange === idx
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-secondary text-secondary-foreground hover:bg-muted"
+                  data-testid="btn-apply-filter"
+                  onClick={applyFilter}
+                  className={`px-5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    isDirty
+                      ? "bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
+                      : "bg-secondary text-secondary-foreground cursor-default"
                   }`}
                 >
-                  {range.label}
+                  확인
                 </button>
-              ))}
-            </div>
 
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">시작일</label>
-                <input
-                  type="date"
-                  data-testid="input-from-date"
-                  value={pendingFrom}
-                  max={pendingTo}
-                  onChange={(e) => { setPendingFrom(e.target.value); setPendingRange(-1); }}
-                  className="border border-input rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                />
+                {isDirty && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1 w-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                    변경된 기간을 적용하려면 확인 버튼을 누르세요
+                  </p>
+                )}
               </div>
-              <span className="text-muted-foreground pb-1.5">~</span>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-muted-foreground font-medium whitespace-nowrap">종료일</label>
-                <input
-                  type="date"
-                  data-testid="input-to-date"
-                  value={pendingTo}
-                  min={pendingFrom}
-                  max={today}
-                  onChange={(e) => { setPendingTo(e.target.value); setPendingRange(-1); }}
-                  className="border border-input rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-              </div>
-              <button
-                data-testid="btn-apply-filter"
-                onClick={applyFilter}
-                className={`px-5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                  isDirty
-                    ? "bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
-                    : "bg-secondary text-secondary-foreground cursor-default"
-                }`}
-              >
-                확인
-              </button>
-            </div>
-
-            {isDirty && (
-              <p className="text-xs text-amber-600 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-                변경된 기간을 적용하려면 확인 버튼을 누르세요
-              </p>
             )}
           </CardContent>
         </Card>
 
-        {/* Results */}
+        {/* Results Table */}
         <Card className="border-card-border shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
@@ -271,15 +286,17 @@ export default function ScoreComparison() {
               {!loading && (
                 <Badge variant="secondary" className="text-xs">{sortedStats.length}명</Badge>
               )}
-              <span className="ml-auto text-xs font-normal text-muted-foreground/70">
-                {appliedFrom} ~ {appliedTo}
-              </span>
+              {appliedFrom && appliedTo && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground/70">
+                  {formatDate(appliedFrom)} ~ {formatDate(appliedTo)}
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
               <div className="p-4 space-y-3">
-                {[0,1,2,3,4].map(i => (
+                {[0, 1, 2, 3, 4].map((i) => (
                   <div key={i} className="flex items-center gap-4">
                     <Skeleton className="h-8 w-8 rounded-full" />
                     <Skeleton className="h-4 w-24" />
@@ -308,7 +325,7 @@ export default function ScoreComparison() {
                       </th>
                       <th className="text-right px-4 py-3 font-medium text-muted-foreground">
                         기준 점수
-                        <span className="block text-xs font-normal opacity-60">첫 게임 평균</span>
+                        <span className="block text-xs font-normal opacity-60">첫 참여 게임 평균</span>
                       </th>
                       <th
                         className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none"
@@ -344,8 +361,11 @@ export default function ScoreComparison() {
                               <span className="font-medium">{s.member.name}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-right text-muted-foreground font-mono">
-                            {s.firstScore}
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-muted-foreground font-mono">{s.firstScore}</span>
+                            <span className="block text-xs text-muted-foreground/50 mt-0.5">
+                              {formatDate(s.firstDate)}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <span className="text-base font-bold text-primary">{s.avgScore}</span>
@@ -361,7 +381,13 @@ export default function ScoreComparison() {
                                   : "bg-muted text-muted-foreground"
                               }`}
                             >
-                              {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : isDown ? <TrendingDown className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
+                              {isUp ? (
+                                <TrendingUp className="w-3.5 h-3.5" />
+                              ) : isDown ? (
+                                <TrendingDown className="w-3.5 h-3.5" />
+                              ) : (
+                                <Minus className="w-3.5 h-3.5" />
+                              )}
                               {isUp ? "+" : ""}{s.improvement}
                             </span>
                           </td>
@@ -377,7 +403,7 @@ export default function ScoreComparison() {
             )}
           </CardContent>
         </Card>
-      </main>
+      </div>
     </div>
   );
 }

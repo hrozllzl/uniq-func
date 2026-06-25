@@ -344,23 +344,17 @@ export default function TeamBuilder() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-sidebar text-sidebar-foreground shadow-lg">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        <div className="flex items-center gap-3 mb-6">
           <button
             data-testid="btn-back"
             onClick={() => setLocation("/")}
-            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-lg bg-secondary hover:bg-muted flex items-center justify-center transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">팀 짜기</h1>
-            <p className="text-xs text-sidebar-foreground/60">균형 팀 구성 & 드래그 조정</p>
-          </div>
+          <h1 className="text-lg font-bold">팀 짜기</h1>
         </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         {loading ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="space-y-3">
@@ -485,19 +479,19 @@ export default function TeamBuilder() {
                   {/* Balancing method */}
                   <div>
                     <label className="text-xs text-muted-foreground font-medium block mb-2">팀 짜기 방식</label>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
                       {(["avg", "total"] as BalancingMethod[]).map((m) => (
                         <button
                           key={m}
                           data-testid={`btn-balancing-${m}`}
                           onClick={() => setBalancing(m)}
-                          className={`w-full py-2 rounded-lg text-xs font-medium text-left px-3 transition-all border ${
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
                             balancing === m
-                              ? "border-primary bg-accent/50 text-primary"
-                              : "border-card-border bg-background text-secondary-foreground hover:bg-muted/30"
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "bg-secondary text-secondary-foreground hover:bg-muted"
                           }`}
                         >
-                          {m === "avg" ? "⚖️ 전체 평균 일치" : "📊 전체 총점 일치"}
+                          {m === "avg" ? "평균 일치" : "총점 일치"}
                         </button>
                       ))}
                     </div>
@@ -507,7 +501,7 @@ export default function TeamBuilder() {
                     data-testid="btn-build-teams"
                     onClick={buildTeams}
                     disabled={memberScores.length < numTeams}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-sky-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Shuffle className="w-4 h-4" />
                     팀 짜기
