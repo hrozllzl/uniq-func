@@ -20,8 +20,11 @@ export default function Home() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-[#f4f6fb] flex flex-col items-center pt-[18vh] px-6">
+    <div className="min-h-screen bg-[#f4f6fb] flex flex-col items-center pt-[12vh] px-6">
       <div className="w-full max-w-xl">
+        <div className="flex justify-center mb-8">
+          <img src="/logo.png" alt="팀 유니크" className="h-20 w-20 rounded-2xl object-cover shadow-sm" />
+        </div>
         <div className="grid grid-cols-2 gap-4">
           {MENUS.map((menu) => {
             const Icon = menu.icon;
