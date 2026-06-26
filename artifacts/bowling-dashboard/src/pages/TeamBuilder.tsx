@@ -84,20 +84,28 @@ function buildTeamsAvg(members: MemberWithScore[], numTeams: number): Team[] {
   return teams;
 }
 
-// Greedy: assign to team with lowest total; randomize among equal-total teams
+// Greedy: assign to team with lowest total.
+// For variety, picks randomly from a "band" of top players within 10pts of each other.
+// This keeps balance tight (≤10pt difference) while giving different results each press.
 function buildTeamsTotal(members: MemberWithScore[], numTeams: number): Team[] {
   const teams: Team[] = Array.from({ length: numTeams }, (_, i) => ({
     id: `team-${i + 1}`,
     name: `팀 ${i + 1}`,
     members: [],
   }));
-  const tiered = sortByTier(members, numTeams);
-  tiered.forEach((m) => {
-    const minTotal = Math.min(...teams.map(calcTeamTotal));
-    const candidates = teams.filter((t) => calcTeamTotal(t) === minTotal);
+  const remaining = [...members].sort((a, b) => b.score - a.score);
+  while (remaining.length > 0) {
+    const maxScore = remaining[0].score;
+    const bandEnd = remaining.findIndex((m) => maxScore - m.score > 10);
+    const bandSize = bandEnd === -1 ? remaining.length : bandEnd;
+    const pickIdx = Math.floor(Math.random() * bandSize);
+    const [player] = remaining.splice(pickIdx, 1);
+    const totals = teams.map(calcTeamTotal);
+    const minTotal = Math.min(...totals);
+    const candidates = teams.filter((_, i) => totals[i] === minTotal);
     const target = candidates[Math.floor(Math.random() * candidates.length)];
-    target.members.push(m);
-  });
+    target.members.push(player);
+  }
   return teams;
 }
 
@@ -415,8 +423,8 @@ export default function TeamBuilder() {
                         data-testid={`member-list-${member.id}`}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${
                           excluded
-                            ? "border-dashed border-muted opacity-40 bg-muted/20"
-                            : "border-card-border bg-background hover:bg-muted/20"
+                            ? "border-dashed border-muted opacity-40 bg-muted/10"
+                            : "border-gray-100 bg-white hover:bg-gray-50"
                         }`}
                       >
                         <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">

@@ -198,7 +198,7 @@ export default function ScoreComparison() {
       : <ChevronUp className="inline w-3 h-3 ml-0.5" />;
   }
 
-  const selectCls = "border border-input rounded-md px-2 py-1.5 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer";
+  const selectCls = "border border-input rounded-md px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer";
 
   function PeriodSelector({
     label,
