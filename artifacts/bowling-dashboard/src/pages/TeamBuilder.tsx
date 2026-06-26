@@ -614,31 +614,33 @@ export default function TeamBuilder() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
                     <input
                       type="text"
                       placeholder="이름"
                       value={guestName}
                       onChange={(e) => setGuestName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && addGuest()}
-                      className={`${inputCls} flex-1`}
+                      className="border border-input rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring flex-1 min-w-0"
                     />
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder="점수"
                       value={guestScore}
-                      onChange={(e) => setGuestScore(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, "");
+                        if (v === "" || parseInt(v) <= 300) setGuestScore(v);
+                      }}
                       onKeyDown={(e) => e.key === "Enter" && addGuest()}
-                      className={`${inputCls} w-20`}
-                      min={0}
-                      max={300}
+                      className="border border-input rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring w-16 text-center"
                     />
                     <button
                       onClick={addGuest}
                       disabled={!guestName.trim() || !guestScore}
-                      className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                      className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                     >
-                      <Plus className="w-3.5 h-3.5" />
                       추가
                     </button>
                   </div>
